@@ -72,8 +72,8 @@ def create_dataloaders(tokenized_dataset, tokenizer, model):
         eval_dataloader: DataLoader for the evaluation set.
     """
     data_collator = DataCollatorForSeq2Seq(tokenizer, model=model, padding=True, return_tensors="pt")
-    train_dataloader = DataLoader(tokenized_dataset["train"].select(range(100)), batch_size=16, shuffle=True, collate_fn=data_collator, drop_last=True)
-    eval_dataloader = DataLoader(tokenized_dataset["validation"].select(range(20)), batch_size=16, shuffle=False, collate_fn=data_collator, drop_last=True)
+    train_dataloader = DataLoader(tokenized_dataset["train"], batch_size=16, shuffle=True, collate_fn=data_collator, drop_last=True)
+    eval_dataloader = DataLoader(tokenized_dataset["validation"], batch_size=16, shuffle=False, collate_fn=data_collator, drop_last=True)
     return train_dataloader, eval_dataloader
 
 def setup_optimizer_and_scheduler(model, train_dataloader, num_epochs=3):
