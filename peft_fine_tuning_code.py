@@ -12,6 +12,9 @@ import os
 NUM_EPOCHS = 5
 LEARNING_RATE = 1e-5
 BATCH_SIZE = 32
+RANK = 8
+LORA_ALPHA = 16
+LORA_DROPOUT = 0.1
 
 def initialize_accelerator():
     """
@@ -213,10 +216,10 @@ def main():
 
     # Prepare LoRA configuration and apply it to the model
     lora_config = LoraConfig(
-        task_type=TaskType.SEQ_2_SEQ_LM,  # Specify the task type
-        r=8,  # Rank of the update matrices
-        lora_alpha=16,  # Scaling factor
-        lora_dropout=0.1,  # Dropout probability
+        task_type=TaskType.SEQ_2_SEQ_LM,
+        r=RANK,  # Rank of the update matrices
+        lora_alpha=LORA_ALPHA,  # Scaling factor
+        lora_dropout=LORA_DROPOUT,  # Dropout probability
     )
     model = get_peft_model(model, lora_config)
     tokenized_dataset = load_and_preprocess_dataset("knkarthick/dialogsum", tokenizer, accelerator)
