@@ -8,16 +8,16 @@ from peft import LoraConfig, get_peft_model, TaskType
 import numpy as np
 import os
 
-# Hyperparameter recommendations
-NUM_EPOCHS = 5  # Increased epoch for better learning
-LEARNING_RATE = 1e-5  # Reduced learning rate for better convergence in later epochs
-BATCH_SIZE = 32  # Increase batch size to leverage more GPU memory, adjust according to availability
+# Hyperparameters
+NUM_EPOCHS = 5
+LEARNING_RATE = 1e-5
+BATCH_SIZE = 32
 
 def initialize_accelerator():
     """
     Initialize and return an Accelerator object for distributed training.
     """
-    return Accelerator()
+    return Accelerator(gradient_accumulation_steps=2, mixed_precision="fp16")
 
 def load_model_and_tokenizer(model_name):
     """
@@ -150,13 +150,14 @@ def training_loop(model, optimizer, scheduler, train_dataloader, eval_dataloader
 
     for epoch in range(num_epochs):
         model.train()
-        for _, batch in enumerate(train_dataloader):
-            outputs = model(**batch)
-            loss = outputs.loss
-            accelerator.backward(loss)
-            optimizer.step()
-            scheduler.step()
-            optimizer.zero_grad()
+        for batch in train_dataloader:
+            with accelerator.accumulate(model):
+                outputs = model(**batch)
+                loss = outputs.loss
+                accelerator.backward(loss)
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
 
         model.eval()
         eval_loss = 0

@@ -7,7 +7,7 @@ from accelerate import Accelerator
 import numpy as np
 
 # Hyperparameter recommendations
-BATCH_SIZE = 32  # Increase batch size to leverage more GPU memory, adjust according to availability
+BATCH_SIZE = 16  # Increase batch size to leverage more GPU memory, adjust according to availability
 
 def initialize_accelerator():
     """
@@ -93,7 +93,7 @@ def evaluate_model(model, test_dataloader, tokenizer, accelerator):
     all_labels = []
 
     model.eval()
-    for _, batch in enumerate(test_dataloader):
+    for batch in test_dataloader:
         with torch.no_grad():
             outputs = model(**batch)
             loss = outputs.loss
