@@ -5,7 +5,6 @@ from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, DataCollatorForSeq2Seq, set_seed
 from accelerate import Accelerator
 import numpy as np
-import os
 
 # Hyperparameter recommendations
 BATCH_SIZE = 32  # Increase batch size to leverage more GPU memory, adjust according to availability
