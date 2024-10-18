@@ -19,22 +19,18 @@ def initialize_accelerator():
     """
     return Accelerator()
 
-def load_model_and_tokenizer(model_name, model_dir=None):
+def load_model_and_tokenizer(model_name):
     """
     Load and return the model and tokenizer for the given model name and directory.
 
     Args:
         model_name (str): The name of the model to load.
-        model_dir (str): The directory where the fine-tuned model is saved.
 
     Returns:
         model: The loaded model.
         tokenizer: The loaded tokenizer.
     """
-    if model_dir:
-        model = AutoModelForSeq2SeqLM.from_pretrained(model_dir)
-    else:
-        model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     return model, tokenizer
 
@@ -222,7 +218,6 @@ def main():
         lora_dropout=0.1,  # Dropout probability
     )
     model = get_peft_model(model, lora_config)
-
     tokenized_dataset = load_and_preprocess_dataset("knkarthick/dialogsum", tokenizer, accelerator)
     train_dataloader, eval_dataloader = create_dataloaders(tokenized_dataset, tokenizer, model)
     optimizer, scheduler = setup_optimizer_and_scheduler(model, train_dataloader)
