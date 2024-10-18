@@ -94,7 +94,7 @@ def evaluate_model(model, test_dataloader, tokenizer, accelerator):
     all_labels = []
 
     model.eval()
-    for step, batch in enumerate(test_dataloader):
+    for _, batch in enumerate(test_dataloader):
         with torch.no_grad():
             outputs = model(**batch)
             loss = outputs.loss
@@ -150,8 +150,10 @@ def main():
     Main function to initialize components, run evaluation, and print metrics.
     """
     set_seed(42)
+    # Prompt user for the model directory
+    model_dir = input("Enter the directory of the model: ")
     accelerator = initialize_accelerator()
-    model, tokenizer = load_model_and_tokenizer("google/flan-t5-base", "./fine-tuned-flan-t5-base-v2")
+    model, tokenizer = load_model_and_tokenizer("google/flan-t5-base", model_dir)
     tokenized_dataset = load_and_preprocess_dataset("knkarthick/dialogsum", tokenizer, accelerator)
     test_dataloader = create_test_dataloader(tokenized_dataset, tokenizer, model)
     model, test_dataloader = accelerator.prepare(model, test_dataloader)
