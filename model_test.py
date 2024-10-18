@@ -6,8 +6,8 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, DataCollatorForSe
 from accelerate import Accelerator
 import numpy as np
 
-# Hyperparameter recommendations
-BATCH_SIZE = 16  # Increase batch size to leverage more GPU memory, adjust according to availability
+# Hyperparameter
+BATCH_SIZE = 16
 
 def initialize_accelerator():
     """
