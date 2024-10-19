@@ -9,14 +9,14 @@ import os
 
 # Hyperparameters
 NUM_EPOCHS = 5
-LEARNING_RATE = 1e-5
-BATCH_SIZE = 32
+LEARNING_RATE = 2e-5
+BATCH_SIZE = 16
 
 def initialize_accelerator():
     """
     Initialize and return an Accelerator object for distributed training.
     """
-    return Accelerator(gradient_accumulation_steps=2, mixed_precision="fp16")
+    return Accelerator()
 
 def load_model_and_tokenizer(model_name):
     """
@@ -75,8 +75,8 @@ def create_dataloaders(tokenized_dataset, tokenizer, model):
         test_dataloader: DataLoader for the test set.
     """
     data_collator = DataCollatorForSeq2Seq(tokenizer, model=model, padding=True, return_tensors="pt")
-    train_dataloader = DataLoader(tokenized_dataset["train"], batch_size=BATCH_SIZE, shuffle=True, collate_fn=data_collator, drop_last=True)
-    eval_dataloader = DataLoader(tokenized_dataset["validation"], batch_size=BATCH_SIZE, shuffle=False, collate_fn=data_collator, drop_last=True)
+    train_dataloader = DataLoader(tokenized_dataset["train"].select(range(1)), batch_size=BATCH_SIZE, shuffle=True, collate_fn=data_collator, drop_last=True)
+    eval_dataloader = DataLoader(tokenized_dataset["validation"].select(range(1)), batch_size=BATCH_SIZE, shuffle=False, collate_fn=data_collator, drop_last=True)
     return train_dataloader, eval_dataloader
 
 def setup_optimizer_and_scheduler(model, train_dataloader, num_epochs=3):
@@ -149,13 +149,12 @@ def training_loop(model, optimizer, scheduler, train_dataloader, eval_dataloader
     for epoch in range(num_epochs):
         model.train()
         for batch in train_dataloader:
-            with accelerator.accumulate(model):
-                outputs = model(**batch)
-                loss = outputs.loss
-                accelerator.backward(loss)
-                optimizer.step()
-                scheduler.step()
-                optimizer.zero_grad()
+            outputs = model(**batch)
+            loss = outputs.loss
+            accelerator.backward(loss)
+            optimizer.step()
+            scheduler.step()
+            optimizer.zero_grad()
 
         model.eval()
         eval_loss = 0

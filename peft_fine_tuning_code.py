@@ -11,7 +11,7 @@ import os
 # Hyperparameters
 NUM_EPOCHS = 5
 LEARNING_RATE = 1e-5
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 RANK = 8
 LORA_ALPHA = 16
 LORA_DROPOUT = 0.1
@@ -20,7 +20,7 @@ def initialize_accelerator():
     """
     Initialize and return an Accelerator object for distributed training.
     """
-    return Accelerator(gradient_accumulation_steps=2, mixed_precision="fp16")
+    return Accelerator()
 
 def load_model_and_tokenizer(model_name):
     """
@@ -154,13 +154,12 @@ def training_loop(model, optimizer, scheduler, train_dataloader, eval_dataloader
     for epoch in range(num_epochs):
         model.train()
         for batch in train_dataloader:
-            with accelerator.accumulate(model):
-                outputs = model(**batch)
-                loss = outputs.loss
-                accelerator.backward(loss)
-                optimizer.step()
-                scheduler.step()
-                optimizer.zero_grad()
+            outputs = model(**batch)
+            loss = outputs.loss
+            accelerator.backward(loss)
+            optimizer.step()
+            scheduler.step()
+            optimizer.zero_grad()
 
         model.eval()
         eval_loss = 0

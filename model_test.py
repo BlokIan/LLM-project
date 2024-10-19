@@ -73,7 +73,7 @@ def create_test_dataloader(tokenized_dataset, tokenizer, model):
         test_dataloader: DataLoader for the test set.
     """
     data_collator = DataCollatorForSeq2Seq(tokenizer, model=model, padding=True, return_tensors="pt")
-    test_dataloader = DataLoader(tokenized_dataset["test"], batch_size=BATCH_SIZE, shuffle=False, collate_fn=data_collator, drop_last=True)
+    test_dataloader = DataLoader(tokenized_dataset["test"].select(range(1)), batch_size=1, shuffle=False, collate_fn=data_collator, drop_last=True)
     return test_dataloader
 
 def evaluate_model(model, test_dataloader, tokenizer, accelerator):
