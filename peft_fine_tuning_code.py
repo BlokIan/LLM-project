@@ -10,7 +10,7 @@ import os
 
 # Hyperparameters
 NUM_EPOCHS = 5
-LEARNING_RATE = 1e-5
+LEARNING_RATE = 2e-5
 BATCH_SIZE = 16
 RANK = 8
 LORA_ALPHA = 16
