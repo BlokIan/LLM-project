@@ -2,7 +2,8 @@ import torch
 from datasets import load_dataset
 import evaluate
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, DataCollatorForSeq2Seq, get_linear_schedule_with_warmup, set_seed
+from torch.optim.lr_scheduler import CosineAnnealingLR
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, DataCollatorForSeq2Seq, set_seed
 from accelerate import Accelerator
 import numpy as np
 import os
@@ -92,11 +93,11 @@ def setup_optimizer_and_scheduler(model, train_dataloader, num_epochs=3):
         optimizer: The optimizer for training.
         scheduler: The learning rate scheduler.
     """
-    optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE)
-    scheduler = get_linear_schedule_with_warmup(
+    optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE, betas=(0.9, 0.98))
+    scheduler = CosineAnnealingLR(
         optimizer=optimizer,
-        num_warmup_steps=100,
-        num_training_steps=(len(train_dataloader) * num_epochs),
+        T_max=len(train_dataloader) * num_epochs,  # Total number of iterations
+        eta_min=1e-6  # Minimum learning rate at the end of the annealing
     )
     return optimizer, scheduler
 
