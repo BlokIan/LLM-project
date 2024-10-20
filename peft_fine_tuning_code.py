@@ -171,7 +171,7 @@ def training_loop(model, optimizer, scheduler, train_dataloader, eval_dataloader
                 eval_loss += outputs.loss.item()
                 
                 # Generate predictions
-                generated_tokens = accelerator.unwrap_model(model).generate(batch["input_ids"], max_length=128)
+                generated_tokens = accelerator.unwrap_model(model).generate(input_ids=batch["input_ids"])
                 labels = batch["labels"]
                 all_predictions.extend(generated_tokens.cpu().numpy())
                 all_labels.extend(labels.cpu().numpy())
