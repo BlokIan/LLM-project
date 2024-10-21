@@ -2,19 +2,20 @@ import torch
 from datasets import load_dataset
 import evaluate
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, DataCollatorForSeq2Seq, get_cosine_schedule_with_warmup, set_seed
+from torch.optim.lr_scheduler import CosineAnnealingLR
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, DataCollatorForSeq2Seq, set_seed
 from accelerate import Accelerator
 from peft import LoraConfig, get_peft_model, TaskType
 import numpy as np
 import os
 
 # Hyperparameters
-NUM_EPOCHS = 10
+NUM_EPOCHS = 8
 LEARNING_RATE = 3e-5
 BATCH_SIZE = 16
-RANK = 8
+RANK = 16
 LORA_ALPHA = 16
-LORA_DROPOUT = 0.1
+LORA_DROPOUT = 0.05
 
 def initialize_accelerator():
     """
@@ -97,11 +98,11 @@ def setup_optimizer_and_scheduler(model, train_dataloader, num_epochs=NUM_EPOCHS
         optimizer: The optimizer for training.
         scheduler: The learning rate scheduler.
     """
-    optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE, betas=(0.9, 0.98), eps=1e-8)  # Adjusted betas and epsilon for better stability
-    scheduler = get_cosine_schedule_with_warmup(
+    optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE, betas=(0.9, 0.98))
+    scheduler = CosineAnnealingLR(
         optimizer=optimizer,
-        num_warmup_steps=500,  # Increased warmup steps to ensure stable learning at the beginning
-        num_training_steps=(len(train_dataloader) * num_epochs)
+        T_max=len(train_dataloader) * num_epochs,  # Total number of iterations
+        eta_min=1e-6  # Minimum learning rate at the end of the annealing
     )
     return optimizer, scheduler
 
@@ -187,7 +188,7 @@ def training_loop(model, optimizer, scheduler, train_dataloader, eval_dataloader
     accelerator.wait_for_everyone()
     accelerator.end_training()
 
-def save_model(model, accelerator, output_dir="./peft_fine-tuned-flan-t5-base-v2"):
+def save_model(model, accelerator, output_dir="./peft_fine-tuned-flan-t5-base-v3"):
     """
     Save the fine-tuned model to the specified output directory.
 
