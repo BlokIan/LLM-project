@@ -57,7 +57,7 @@ def load_and_preprocess_dataset(dataset_name, tokenizer):
 # Create a calibration dataset loader
 def create_calibration_dataloader(model, tokenizer, tokenized_dataset, batch_size=8):
     data_collator = DataCollatorForSeq2Seq(tokenizer, model=model, padding=True, return_tensors="pt")
-    return DataLoader(tokenized_dataset["train"].select(range(1000)), batch_size=batch_size, shuffle=True, collate_fn=data_collator, drop_last=True)
+    return DataLoader(tokenized_dataset["train"].select(range(500)), batch_size=batch_size, shuffle=True, collate_fn=data_collator, drop_last=True)
 
 # Quantization function for scaled weights
 def quantize_weight(W_scaled):
@@ -81,13 +81,15 @@ def calibrate_model(model, calibration_dataloader, device):
             module_ids[name] = module
     
     # Define the hook function to capture inputs
+    max_samples_per_layer = 1000  # Adjust as needed
     def activation_hook(module, input, output):
         module_name = module_names[module]
         # Collect input activations for weight calibration
         if module_name not in activations:
             activations[module_name] = {'inputs': []}
-        input_activation = input[0].detach().cpu()
-        activations[module_name]['inputs'].append(input_activation)
+        if len(activations[module_name]['inputs']) < max_samples_per_layer:
+            input_activation = input[0].detach().cpu()
+            activations[module_name]['inputs'].append(input_activation)
 
         # Collect activation statistics for activation quantization
         activation = output.detach()
@@ -112,6 +114,9 @@ def calibrate_model(model, calibration_dataloader, device):
             batch = {k: v.to(device) for k, v in batch.items()}
             # Forward pass
             outputs = model(**batch)
+            # Break early if enough samples are collected
+            if all(len(activations[name]['inputs']) >= max_samples_per_layer for name in activations):
+                break
     
     # Remove hooks
     for hook in hooks:
@@ -124,6 +129,9 @@ def calibrate_model(model, calibration_dataloader, device):
         X = torch.cat(inputs_list, dim=0)  # Shape: [samples, ...]
         # Flatten over all dimensions except the last
         X = X.view(-1, X.shape[-1])  # Shape: [N, in_features]
+        # Limit the number of samples
+        if X.shape[0] > max_samples_per_layer:
+            X = X[:max_samples_per_layer]
         s_X = X.abs().mean(dim=0) + 1e-8  # Shape: [in_features], avoid division by zero
         alphas = torch.arange(0, 1.1, 0.1)  # Alphas from 0 to 1 in steps of 0.1
         min_loss = None
@@ -294,7 +302,7 @@ def main():
     # The model is now quantized and ready for inference
     # Example inference
     model.eval()
-    input_text = "Summarize the following dialogue: #Person1#: Excuse me, did you see a set of keys? #Person2#: What kind of keys? #Person1#: Five keys and a small foot ornament. #Person2#: What a shame! I didn't see them. #Person1#: Well, can you help me look for it? That's my first time here. #Person2#: Sure. It's my pleasure. I'd like to help you look for the missing keys. #Person1#: It's very kind of you. #Person2#: It's not a big deal.Hey, I found them. #Person1#: Oh, thank God! I don't know how to thank you, guys. #Person2#: You're welcome."
+    input_text = "Summarize the following dialogue: #Person1#: Ms. Dawson, I need you to take a dictation for me. #Person2#: Yes, sir... #Person1#: This should go out as an intra-office memorandum to all employees by this afternoon. Are you ready? #Person2#: Yes, sir. Go ahead. #Person1#: Attention all staff... Effective immediately, all office communications are restricted to email correspondence and official memos. The use of Instant Message programs by employees during working hours is strictly prohibited. #Person2#: Sir, does this apply to intra-office communications only? Or will it also restrict external communications? #Person1#: It should apply to all communications, not only in this office between employees, but also any outside communications. #Person2#: But sir, many employees use Instant Messaging to communicate with their clients. #Person1#: They will just have to change their communication methods. I don't want any - one using Instant Messaging in this office. It wastes too much time! Now, please continue with the memo. Where were we? #Person2#: This applies to internal and external communications. #Person1#: Yes. Any employee who persists in using Instant Messaging will first receive a warning and be placed on probation. At second offense, the employee will face termination. Any questions regarding this new policy may be directed to department heads. #Person2#: Is that all? #Person1#: Yes. Please get this memo typed up and distributed to all employees before 4 pm."
     inputs = tokenizer(input_text, return_tensors="pt").to(device)
     with torch.no_grad():
         outputs = model.generate(**inputs, max_length=128)
