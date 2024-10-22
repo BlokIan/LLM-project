@@ -5,6 +5,7 @@ from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, DataCollatorForSeq2Seq, set_seed
 from accelerate import Accelerator
 import numpy as np
+import os
 
 # Hyperparameter
 BATCH_SIZE = 16
@@ -148,7 +149,7 @@ def main():
     """
     set_seed(42)
     # Prompt user for the model directory
-    model_dir = input("Enter the directory of the model: ")
+    model_dir = os.path.join(os.getcwd(), "fine-tuned-flan-t5-base-v2")
     accelerator = initialize_accelerator()
     model, tokenizer = load_model_and_tokenizer("google/flan-t5-base", model_dir)
     tokenized_dataset = load_and_preprocess_dataset("knkarthick/dialogsum", tokenizer, accelerator)
