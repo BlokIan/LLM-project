@@ -2,29 +2,45 @@ import torch
 from datasets import load_dataset
 import evaluate
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, DataCollatorForSeq2Seq, set_seed
-from accelerate import Accelerator
-import numpy as np
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, BitsAndBytesConfig, DataCollatorForSeq2Seq, set_seed
 from peft import PeftModel
+import numpy as np
+# Custom per-channel scaling file
+from per_channel_scaling import create_calibration_dataloader, calibrate_model 
 
 # Hyperparameter
 BATCH_SIZE = 16
+MAX_SAMPLES_PER_LAYER = 1000
 
-def initialize_accelerator():
-    """
-    Initialize and return an Accelerator object for distributed training.
-    """
-    return Accelerator()
 
-# Load model and tokenizer with option for PEFT model
-def load_model_and_tokenizer(model_dir, model_name, is_peft_model=False):
-    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-    if is_peft_model:
-        model = PeftModel.from_pretrained(model, model_dir)
-        model = model.merge_and_unload()  # Merge LoRA weights into the base model
-    else:
-        model = AutoModelForSeq2SeqLM.from_pretrained(model_dir)
+def load_model_and_tokenizer(model_name, model_dir, bnb_config, is_peft_model=False):
+    """
+    Load and return the quantized model and tokenizer for the given model name and directory. Option for PEFT model
+
+    Args:
+        model_name (str): The name of the model to load.
+        model_dir (str): The directory where the fine-tuned model is saved.
+        bnb_config (): BitsAndBytes quantization configuration
+        is_peft_model (default=False): Toggle for PEFT model
+
+    Returns:
+        model: The loaded model.
+        tokenizer: The loaded tokenizer.
+    """
+    model = AutoModelForSeq2SeqLM.from_pretrained(
+    model_name,
+    quantization_config=bnb_config,
+    device_map="auto",
+    )
     tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+    if is_peft_model:
+        model = PeftModel(
+            model,
+            model_dir
+        )
+        model = model.merge_and_unload()
+
     return model, tokenizer
 
 def load_and_preprocess_prompt_engineering_dataset(dataset_name, tokenizer):
@@ -62,7 +78,8 @@ def load_and_preprocess_prompt_engineering_dataset(dataset_name, tokenizer):
 
     return tokenized_dataset
 
-def load_and_preprocess_dataset(dataset_name, tokenizer, accelerator):
+
+def load_and_preprocess_dataset(dataset_name, tokenizer):
     """
     Load and preprocess the dataset using the given tokenizer and accelerator.
 
@@ -83,12 +100,12 @@ def load_and_preprocess_dataset(dataset_name, tokenizer, accelerator):
         model_inputs["labels"] = labels["input_ids"]
         return model_inputs
 
-    with accelerator.main_process_first():
-        tokenized_dataset = dataset.map(
-            preprocess_function,
-            batched=True,
-            remove_columns=["id", "dialogue", "summary", "topic"],
-        )
+    tokenized_dataset = dataset.map(
+        preprocess_function,
+        batched=True,
+        remove_columns=["id", "dialogue", "summary", "topic"],
+    )
+
     return tokenized_dataset
 
 def create_test_dataloader(tokenized_dataset, tokenizer, model):
@@ -107,7 +124,7 @@ def create_test_dataloader(tokenized_dataset, tokenizer, model):
     test_dataloader = DataLoader(tokenized_dataset["test"], batch_size=BATCH_SIZE, shuffle=False, collate_fn=data_collator, drop_last=True)
     return test_dataloader
 
-def evaluate_model(model, test_dataloader, tokenizer, accelerator):
+def evaluate_model(model, test_dataloader, tokenizer):
     """
     Evaluate the model on the test dataset and calculate ROUGE, BLEU, and Perplexity scores.
 
@@ -131,7 +148,7 @@ def evaluate_model(model, test_dataloader, tokenizer, accelerator):
             total_loss += loss.item()
 
             # Generate predictions
-            generated_tokens = accelerator.unwrap_model(model).generate(batch["input_ids"], max_length=128)
+            generated_tokens = model.generate(batch["input_ids"], max_length=128)
             labels = batch["labels"]
             all_predictions.extend(generated_tokens.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
@@ -173,6 +190,7 @@ def compute_metrics(eval_pred, tokenizer, rouge_metric, bleu_metric):
     result["bleu"] = round(bleu_result["bleu"], 4)
     return result
 
+
 def main():
     """
     Main function to initialize components, run evaluation, and print metrics.
@@ -184,8 +202,12 @@ def main():
         model_dir = model_name
     else:
         model_dir = input("Input model directory: ")
-
     is_peft_model = input("Is this a PEFT model? (yes/no): ").strip().lower() == "yes"
+
+    k_bit = input("Set the bit-width for quantization (4/8): ")
+
+    model = AutoModelForSeq2SeqLM.from_pretrained(model_dir)
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
     
     # If base model then use prompt engineering dataset
     if is_base_model:
@@ -194,12 +216,46 @@ def main():
         # Load and preprocess normal dataset
         tokenized_dataset = load_and_preprocess_dataset("knkarthick/dialogsum", tokenizer)
 
-    accelerator = initialize_accelerator()
-    model, tokenizer = load_model_and_tokenizer(model_dir, model_name, is_peft_model)
-    tokenized_dataset = load_and_preprocess_dataset("knkarthick/dialogsum", tokenizer, accelerator)
+    # Determine the device
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    # Move the model to the device if it's not already there
+    model.to(device)
+
+    # Create calibration dataloader
+    calibration_dataset = create_calibration_dataloader(model, tokenizer, tokenized_dataset)
+
+    # Calibrate model and quantize weights
+    calibrate_model(model, calibration_dataset, device, MAX_SAMPLES_PER_LAYER)
+
+    # Saving calibrated model path
+    if is_base_model:
+        calibrated_model_path = "./flan-t5-base-calibrated"
+    else:
+        calibrated_model_path = model_dir + "-calibrated"
+    model.save_pretrained(calibrated_model_path)
+
+    # Setup BitsAndBytes Configuration for either 4 or 8 bit
+    if k_bit == "4":
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.float16,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+        )
+    else:
+        bnb_config = BitsAndBytesConfig(
+            load_in_8bit=True
+        )
+
+    # Load calibrated model for quantization model with the bnb_config (and tokenizer but this is redundant)
+    model, tokenizer = load_model_and_tokenizer(model_name, calibrated_model_path, bnb_config, is_peft_model)
+
+    # Create dataloader
     test_dataloader = create_test_dataloader(tokenized_dataset, tokenizer, model)
-    model, test_dataloader = accelerator.prepare(model, test_dataloader)
-    evaluate_model(model, test_dataloader, tokenizer, accelerator)
+
+    # Evaluate the model on the test set
+    evaluate_model(model, test_dataloader, tokenizer)
 
 if __name__ == "__main__":
     main()
