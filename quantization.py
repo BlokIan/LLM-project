@@ -1,19 +1,26 @@
-import torch, load_dataset
+import torch
+from datasets import load_dataset
 import torch.nn as nn
 import torch.quantization
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, GPTQConfig, AwqConfig
-from autoawq import AWQQuantizer, AWQConfig
+from awq.awq import AWQQuantizer
+from torch.utils.data import DataLoader
+from accelerate import Accelerator
+from peft import PeftModel
+import numpy as np
 
-
-
-# Load model and tokenizer
-def load_model_and_tokenizer(model_name):
+# Load model and tokenizer with option for PEFT model
+def load_model_and_tokenizer(model_dir, model_name, is_peft_model=False):
     model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    if is_peft_model:
+        model = PeftModel.from_pretrained(model, model_dir)
+        model = model.merge_and_unload()  # Merge LoRA weights into the base model
+    else:
+        model = AutoModelForSeq2SeqLM.from_pretrained(model_dir)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     return model, tokenizer
 
-
-# Load and preprocess dataset, function from full_fine_tuning_code
+# Load and preprocess dataset
 def load_and_preprocess_dataset(dataset_name, tokenizer):
     dataset = load_dataset(dataset_name)
 
@@ -31,106 +38,73 @@ def load_and_preprocess_dataset(dataset_name, tokenizer):
     )
     return tokenized_dataset
 
+# Create a calibration dataset loader
+def create_calibration_dataloader(tokenized_dataset, batch_size=8):
+    return DataLoader(tokenized_dataset["train"].select(range(100)), batch_size=batch_size, shuffle=False)
 
-# W8A8 Quantization Strategy
-# not sure if this is the right way to apply W8A8 quantization
-def apply_w8a8_quantization(model, quant_path_w8a8, tokenizer, tokenized_dataset):
-    model.eval()
-    model.qconfig = torch.quantization.get_default_qconfig('x86')  
-
-    # prepare the model for quantization
-    model_prepared = torch.quantization.prepare(model)
-    inputs = tokenizer("This is a sample sentence.", return_tensors="pt")
-    with torch.no_grad():
-        model_prepared(**inputs)  # Calibration
-    
-    # convert the model to quantized version
-    model_quantized = torch.quantization.convert(model_prepared)
-
-    # Save the quantized model
-    model.save_pretrained(quant_path_w8a8)
-    tokenizer.save_pretrained(quant_path_w8a8)
-
-
-# GPTQ Quantization Strategy
-def apply_gptq_quantization(model_name, dataset_name, quant_path_gptq, tokenizer, tokenized_dataset):
+# GPTQ Quantization Strategy with Calibration
+def apply_gptq_quantization(model_name, calibration_dataloader, quant_path_gptq):
+    # Configure GPTQ
     gptq_config = GPTQConfig(
         bits=4,
         group_size=128,
-        dataset=dataset_name,
+        dataset='wikitext2',
         desc_act=False,
     )
+
+    # Assuming the model is compatible
     model = AutoModelForSeq2SeqLM.from_pretrained(model_name, quantization_config=gptq_config)
-    
+    model.eval()
+
+    model.model.decoder.layers[0].self_attn.q_proj.__dict__
+
     # Save quantized model
-    model.save_quantized(quant_path_gptq)
-    tokenizer.save_pretrained(quant_path_gptq)
+    model.save_pretrained(quant_path_gptq)
 
-    # Load the quantized model for inference
-    loaded_quantized_model = AutoModelForSeq2SeqLM.from_pretrained(quant_path_gptq)
-
-    # Use input from the dataset
-    sample = tokenized_dataset["train"][0]  # Get the first sample from the training set
-    input_text = "Summarize the following dialogue: " + sample["dialogue"]
-    inputs = tokenizer(input_text, return_tensors="pt").to("cpu") # could be GPU i guess 
-
-    # Generate output using the quantized model
-    output = loaded_quantized_model.generate(**inputs, max_new_tokens=5)
-    decoded_output = tokenizer.decode(output[0])
-
-    print("Generated output:", decoded_output)
-
-    #return model
-
-
-# AWQ Quantization Strategy
-def apply_awq_quantization(model, quant_path_awq, tokenizer, tokenized_dataset):
-    # modify the config file so that it is compatible with transformers integration
+# AWQ Quantization Strategy with Calibration
+def apply_awq_quantization(model, quant_path_awq, calibration_dataloader):
+    # Modify the config file so that it is compatible with transformers integration
     awq_config = AwqConfig(
         bits=4,
         group_size=128,
         zero_point=True,
-        version="GEMM", # not sure why this is needed
+        version="GEMM",
     ).to_dict()
 
-    # Quantize the model
-    model.quantize(tokenizer, quant_config=awq_config)
-    model.save_quantized(quant_path_awq)
-    tokenizer.save_pretrained(quant_path_awq)
+    # Quantizer instance
+    quantizer = AWQQuantizer(model, awq_config)
+    model.eval()
 
-    # Load the quantized model for inference
-    loaded_quantized_model = AutoModelForSeq2SeqLM.from_pretrained(quant_path_awq)
-                                                                   
-    # Use input from the dataset
-    sample = tokenized_dataset["train"][0]  # Get the first sample from the training set
-    input_text = "Summarize the following dialogue: " + sample["dialogue"]
-    inputs = tokenizer(input_text, return_tensors="pt").to("cpu")  # could be GPU i guess 
+    # Calibration step
+    for batch in calibration_dataloader:
+        with torch.no_grad():
+            quantizer.calibrate(**batch)  # Calibration pass
 
-    # Generate output using the quantized model
-    output = loaded_quantized_model.generate(**inputs, max_new_tokens=5)
-    decoded_output = tokenizer.decode(output[0])
-    print("Generated output:", decoded_output)
+    # Apply quantization
+    quantizer.apply_quantization()
     
-    #return model
-
+    # Save the quantized model
+    model.save_pretrained(quant_path_awq)
 
 # Main function
-# have not tested anything, some thing wil not run in cpu can be fixed, do not know how yet. 
 def main():
+    accelerator = Accelerator()
+
     # Dataset and model names
     model_name = "google/flan-t5-base"
-    data_set = "knkarthick/dialogsum"
-    quant_path_gptq = "./quantized_gptq_model"  # Path to save the quantized model
+    model_dir = input("Input model directory: ")
+    is_peft_model = input("Is this a PEFT model? (yes/no): ").strip().lower() == "yes"
+    dataset_name = "knkarthick/dialogsum"
 
     # Load model and tokenizer
-    model, tokenizer = load_model_and_tokenizer(model_name)
-    tokenized_dataset = load_and_preprocess_dataset(data_set, tokenizer)
-
-    # Quantization Methods
-    model_awq = apply_awq_quantization(model, "./awq_model", tokenizer, tokenized_dataset)
-    model_gptq = apply_gptq_quantization(model_name, data_set, "./gptq_model",tokenizer, tokenized_dataset)
-    model_W8A8 = apply_w8a8_quantization(model_name, data_set, "./w8a8_model",tokenizer, tokenized_dataset)
-
+    model, tokenizer = load_model_and_tokenizer(model_dir, model_name, is_peft_model)
+    model = accelerator.prepare(model)  # Prepare model for multi-GPU use
+    tokenized_dataset = load_and_preprocess_dataset(dataset_name, tokenizer)
+    calibration_dataloader = create_calibration_dataloader(tokenized_dataset)
+    calibration_dataloader = accelerator.prepare(calibration_dataloader)  
+    
+    apply_awq_quantization(model, "./awq_model", tokenizer, calibration_dataloader)
+    apply_gptq_quantization(model_name, calibration_dataloader, "./gptq_model")
 
 if __name__ == "__main__":
     main()
