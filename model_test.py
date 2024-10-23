@@ -186,6 +186,8 @@ def main():
         model_dir = input("Input model directory: ")
 
     is_peft_model = input("Is this a PEFT model? (yes/no): ").strip().lower() == "yes"
+
+    model, tokenizer = load_model_and_tokenizer(model_dir, model_name, is_peft_model)
     
     # If base model then use prompt engineering dataset
     if is_base_model:
@@ -195,8 +197,7 @@ def main():
         tokenized_dataset = load_and_preprocess_dataset("knkarthick/dialogsum", tokenizer)
 
     accelerator = initialize_accelerator()
-    model, tokenizer = load_model_and_tokenizer(model_dir, model_name, is_peft_model)
-    tokenized_dataset = load_and_preprocess_dataset("knkarthick/dialogsum", tokenizer, accelerator)
+    #tokenized_dataset = load_and_preprocess_dataset("knkarthick/dialogsum", tokenizer, accelerator)
     test_dataloader = create_test_dataloader(tokenized_dataset, tokenizer, model)
     model, test_dataloader = accelerator.prepare(model, test_dataloader)
     evaluate_model(model, test_dataloader, tokenizer, accelerator)
