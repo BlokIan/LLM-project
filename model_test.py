@@ -45,7 +45,11 @@ def load_and_preprocess_prompt_engineering_dataset(dataset_name, tokenizer):
         # Customize the prompt here
         # For example:
         # prompt_template = "Summarize the following dialogue in one or two sentences:\n"
-        prompt_template = "<PROMPT TEMPLATE>"  # Replace this with your actual prompt
+        file_path = "prompt.txt"
+    
+        # Read the prompt template from the text file
+        with open(file_path, 'r') as file:
+            prompt_template = file.read()
 
         # Apply the prompt template to each dialogue in the dataset
         inputs = [prompt_template + dialogue for dialogue in examples["dialogue"]]
