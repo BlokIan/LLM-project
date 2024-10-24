@@ -3,7 +3,7 @@ from datasets import load_dataset
 import evaluate
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, BitsAndBytesConfig, DataCollatorForSeq2Seq, set_seed
-from peft import PeftModel
+from peft import PeftModel, LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
 import numpy as np
 # Custom per-channel scaling file
 from per_channel_scaling import create_calibration_dataloader, calibrate_model 
@@ -11,7 +11,7 @@ from per_channel_scaling import create_calibration_dataloader, calibrate_model
 
 # Hyperparameter
 BATCH_SIZE = 16
-MAX_SAMPLES_PER_LAYER = 500
+MAX_SAMPLES_PER_LAYER = 10
 
 
 def load_model_and_tokenizer(model_name, model_dir, bnb_config, is_peft_model=False):
@@ -34,11 +34,12 @@ def load_model_and_tokenizer(model_name, model_dir, bnb_config, is_peft_model=Fa
     device_map="auto",
     )
     tokenizer = AutoTokenizer.from_pretrained(model_name)
+    peft_config = LoraConfig(task_type=TaskType.SEQ_2_SEQ_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1)
 
     if is_peft_model:
-        model = PeftModel(
+        model = get_peft_model(
             model,
-            model_dir
+            peft_config
         )
         model = model.merge_and_unload()
 
@@ -70,13 +71,12 @@ def load_and_preprocess_prompt_engineering_dataset(dataset_name, tokenizer):
         labels = tokenizer(examples["summary"], truncation=True, max_length=128, padding="max_length")
         model_inputs["labels"] = labels["input_ids"]
         return model_inputs
-    
+
     tokenized_dataset = dataset.map(
         preprocess_function,
         batched=True,
         remove_columns=["id", "dialogue", "summary", "topic"],
     )
-
     return tokenized_dataset
 
 
@@ -198,14 +198,14 @@ def main():
     """
     set_seed(42)
     model_name = "google/flan-t5-base"
-    is_base_model = input("Are you testing the base model? (yes/no): ").strip().lower() == "yes"
+    is_base_model = True  # input("Are you testing the base model? (yes/no): ").strip().lower() == "yes"
     if is_base_model:
         model_dir = model_name
     else:
-        model_dir = input("Input model directory: ")
-    is_peft_model = input("Is this a PEFT model? (yes/no): ").strip().lower() == "yes"
+        model_dir = "../peft_fine-tuned-flan-t5-base-v3"  # input("Input model directory: ")
+    is_peft_model = True  # input("Is this a PEFT model? (yes/no): ").strip().lower() == "yes"
 
-    k_bit = input("Set the bit-width for quantization (4/8): ")
+    k_bit = 8  #input("Set the bit-width for quantization (4/8): ")
 
     model = AutoModelForSeq2SeqLM.from_pretrained(model_dir)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -222,6 +222,7 @@ def main():
 
     # Move the model to the device if it's not already there
     model.to(device)
+    tokenized_dataset.to(device)
 
     # Create calibration dataloader
     calibration_dataset = create_calibration_dataloader(model, tokenizer, tokenized_dataset)
