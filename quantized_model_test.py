@@ -8,9 +8,10 @@ import numpy as np
 # Custom per-channel scaling file
 from per_channel_scaling import create_calibration_dataloader, calibrate_model 
 
+
 # Hyperparameter
 BATCH_SIZE = 16
-MAX_SAMPLES_PER_LAYER = 1000
+MAX_SAMPLES_PER_LAYER = 500
 
 
 def load_model_and_tokenizer(model_name, model_dir, bnb_config, is_peft_model=False):
@@ -124,7 +125,7 @@ def create_test_dataloader(tokenized_dataset, tokenizer, model):
     test_dataloader = DataLoader(tokenized_dataset["test"], batch_size=BATCH_SIZE, shuffle=False, collate_fn=data_collator, drop_last=True)
     return test_dataloader
 
-def evaluate_model(model, test_dataloader, tokenizer):
+def evaluate_model(model, test_dataloader, tokenizer, device):
     """
     Evaluate the model on the test dataset and calculate ROUGE, BLEU, and Perplexity scores.
 
@@ -148,7 +149,7 @@ def evaluate_model(model, test_dataloader, tokenizer):
             total_loss += loss.item()
 
             # Generate predictions
-            generated_tokens = model.generate(batch["input_ids"], max_length=128)
+            generated_tokens = model.generate(batch["input_ids"].to(device), max_length=128)
             labels = batch["labels"]
             all_predictions.extend(generated_tokens.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
@@ -225,7 +226,7 @@ def main():
     # Create calibration dataloader
     calibration_dataset = create_calibration_dataloader(model, tokenizer, tokenized_dataset)
 
-    # Calibrate model and quantize weights
+    # Calibrate model
     calibrate_model(model, calibration_dataset, device, MAX_SAMPLES_PER_LAYER)
 
     # Saving calibrated model path
@@ -255,7 +256,7 @@ def main():
     test_dataloader = create_test_dataloader(tokenized_dataset, tokenizer, model)
 
     # Evaluate the model on the test set
-    evaluate_model(model, test_dataloader, tokenizer)
+    evaluate_model(model, test_dataloader, tokenizer, device)
 
 if __name__ == "__main__":
     main()
