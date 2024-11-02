@@ -202,7 +202,7 @@ def main():
     if is_base_model:
         model_dir = model_name
     else:
-        model_dir = "../peft_fine-tuned-flan-t5-base-v3"  # input("Input model directory: ")
+        model_dir = input("Input model directory: ")
     is_peft_model = input("Is this a PEFT model? (yes/no): ").strip().lower() == "yes"
 
     k_bit = input("Set the bit-width for quantization (4/8): ")
