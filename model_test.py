@@ -16,8 +16,23 @@ def initialize_accelerator():
     """
     return Accelerator()
 
-# Load model and tokenizer with option for PEFT model
 def load_model_and_tokenizer(model_dir, model_name, is_peft_model=False):
+    """
+    Load a pretrained model and tokenizer, with an option to apply Parameter-Efficient Fine-Tuning (PEFT).
+
+    This function loads a sequence-to-sequence language model and tokenizer. If `is_peft_model` is True, 
+    it loads a PEFT model from the specified directory and merges the LoRA (Low-Rank Adaptation) weights 
+    into the base model for efficiency.
+
+    Args:
+        model_dir (str): Directory containing the pretrained model or PEFT model weights.
+        model_name (str): Name of the base model to load.
+        is_peft_model (bool): Indicates whether to load the model with PEFT. Defaults to False.
+
+    Returns:
+        Tuple[torch.nn.Module, transformers.PreTrainedTokenizer]: 
+            The loaded model (possibly with PEFT applied) and tokenizer.
+    """
     model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
     if is_peft_model:
         model = PeftModel.from_pretrained(model, model_dir)
@@ -192,15 +207,16 @@ def main():
     is_peft_model = input("Is this a PEFT model? (yes/no): ").strip().lower() == "yes"
 
     model, tokenizer = load_model_and_tokenizer(model_dir, model_name, is_peft_model)
-    
+
+    accelerator = initialize_accelerator()
+
     # If base model then use prompt engineering dataset
     if is_base_model:
         tokenized_dataset = load_and_preprocess_prompt_engineering_dataset("knkarthick/dialogsum", tokenizer)
     else:
         # Load and preprocess normal dataset
-        tokenized_dataset = load_and_preprocess_dataset("knkarthick/dialogsum", tokenizer)
+        tokenized_dataset = load_and_preprocess_dataset("knkarthick/dialogsum", tokenizer, accelerator)
 
-    accelerator = initialize_accelerator()
     #tokenized_dataset = load_and_preprocess_dataset("knkarthick/dialogsum", tokenizer, accelerator)
     test_dataloader = create_test_dataloader(tokenized_dataset, tokenizer, model)
     model, test_dataloader = accelerator.prepare(model, test_dataloader)

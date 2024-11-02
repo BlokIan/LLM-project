@@ -6,7 +6,7 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, BitsAndBytesConfi
 from peft import PeftModel, LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
 import numpy as np
 # Custom per-channel scaling file
-from per_channel_scaling import create_calibration_dataloader, calibrate_model 
+from src.per_channel_scaling import create_calibration_dataloader, calibrate_model 
 
 
 # Hyperparameter
@@ -198,14 +198,14 @@ def main():
     """
     set_seed(42)
     model_name = "google/flan-t5-base"
-    is_base_model = True  # input("Are you testing the base model? (yes/no): ").strip().lower() == "yes"
+    is_base_model = input("Are you testing the base model? (yes/no): ").strip().lower() == "yes"
     if is_base_model:
         model_dir = model_name
     else:
         model_dir = "../peft_fine-tuned-flan-t5-base-v3"  # input("Input model directory: ")
-    is_peft_model = True  # input("Is this a PEFT model? (yes/no): ").strip().lower() == "yes"
+    is_peft_model = input("Is this a PEFT model? (yes/no): ").strip().lower() == "yes"
 
-    k_bit = 8  #input("Set the bit-width for quantization (4/8): ")
+    k_bit = input("Set the bit-width for quantization (4/8): ")
 
     model = AutoModelForSeq2SeqLM.from_pretrained(model_dir)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -222,7 +222,6 @@ def main():
 
     # Move the model to the device if it's not already there
     model.to(device)
-    tokenized_dataset.to(device)
 
     # Create calibration dataloader
     calibration_dataset = create_calibration_dataloader(model, tokenizer, tokenized_dataset)

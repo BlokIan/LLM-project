@@ -36,8 +36,17 @@ class QuantizedLinear(nn.Linear):
         # Optionally, you can quantize the output here if needed
         return output
 
-# Load and preprocess dataset
 def load_and_preprocess_dataset(dataset_name, tokenizer):
+    """
+    Load a dataset and preprocess it for training by tokenizing the text data.
+
+    Args:
+        dataset_name (str): Name of the dataset to load.
+        tokenizer (transformers.PreTrainedTokenizer): Tokenizer to encode text data.
+
+    Returns:
+        Dataset: The tokenized dataset, with each entry including tokenized inputs and labels.
+    """
     dataset = load_dataset(dataset_name)
 
     def preprocess_function(examples):
@@ -54,13 +63,32 @@ def load_and_preprocess_dataset(dataset_name, tokenizer):
     )
     return tokenized_dataset
 
-# Create a calibration dataset loader
 def create_calibration_dataloader(model, tokenizer, tokenized_dataset, batch_size=8):
+    """
+    Create a DataLoader for the calibration dataset, used during model quantization.
+
+    Args:
+        model (torch.nn.Module): The model for which calibration is applied.
+        tokenizer (transformers.PreTrainedTokenizer): Tokenizer for data collation.
+        tokenized_dataset (Dataset): Tokenized dataset for calibration.
+        batch_size (int): Batch size for the DataLoader. Defaults to 8.
+
+    Returns:
+        DataLoader: A DataLoader for the calibration dataset.
+    """
     data_collator = DataCollatorForSeq2Seq(tokenizer, model=model, padding=True, return_tensors="pt")
     return DataLoader(tokenized_dataset["train"].select(range(500)), batch_size=batch_size, shuffle=True, collate_fn=data_collator, drop_last=True)
 
-# Quantization function for scaled weights
 def quantize_weight(W_scaled):
+    """
+    Quantize scaled weights for int8 quantization.
+
+    Args:
+        W_scaled (torch.Tensor): Scaled weights to be quantized.
+
+    Returns:
+        Tuple[torch.Tensor, float]: The quantized weight tensor and the scaling factor.
+    """
     W_abs_max = W_scaled.abs().max()
     qmax = 128  # For int8 quantization
     scale = W_abs_max / qmax if W_abs_max != 0 else 1.0
@@ -68,7 +96,17 @@ def quantize_weight(W_scaled):
     return W_q, scale
 
 def calibrate_model(model, calibration_dataloader, device):
-    # Mapping from module to unique name
+    """
+    Calibrate the model by collecting input activations and adjusting weights based on quantization statistics.
+
+    Args:
+        model (torch.nn.Module): Model to calibrate.
+        calibration_dataloader (DataLoader): DataLoader for the calibration dataset.
+        device (torch.device): Device to perform calibration on (e.g., 'cuda' or 'cpu').
+
+    Returns:
+        dict: A dictionary containing activation statistics (min and max values) for each layer.
+    """
     module_names = {}
     module_ids = {}
     activations = {}
@@ -269,7 +307,7 @@ def visualize_activations(activations):
 def main():
     # Dataset and model names
     model_name = "google/flan-t5-base"
-    model = AutoModelForSeq2SeqLM.from_pretrained("./fine-tuned-flan-t5-base-v2")
+    model = AutoModelForSeq2SeqLM.from_pretrained("results/Finetuning version 2/fine-tuned-flan-t5-base-v2")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     # Determine the device
