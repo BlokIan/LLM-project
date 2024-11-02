@@ -11,7 +11,7 @@ from src.per_channel_scaling import create_calibration_dataloader, calibrate_mod
 
 # Hyperparameter
 BATCH_SIZE = 16
-MAX_SAMPLES_PER_LAYER = 10
+MAX_SAMPLES_PER_LAYER = 1000
 
 
 def load_model_and_tokenizer(model_name, model_dir, bnb_config, is_peft_model=False):
