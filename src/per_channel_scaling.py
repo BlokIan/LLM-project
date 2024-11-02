@@ -149,28 +149,3 @@ def visualize_activations(activations):
         plt.grid(True)
         plt.show()
 
-# Main function
-def main():
-    # Dataset and model names
-    model_name = "google/flan-t5-base"
-    model = AutoModelForSeq2SeqLM.from_pretrained("./fine-tuned-flan-t5-base-v2")
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-
-    # Determine the device
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-    # Move the model to the device if it's not already there
-    model.to(device)
-
-    # Load and tokenize the dataset
-    tokenized_dataset = load_and_preprocess_dataset("knkarthick/dialogsum", tokenizer)
-    
-    # Create calibration dataloader
-    calibration_dataset = create_calibration_dataloader(model, tokenizer, tokenized_dataset)
-
-    # Calibrate model and quantize weights
-    calibrate_model(model, calibration_dataset, device)
-    model.save_pretrained("./calibrated-fine-tunedflan-t5-base-v2")
-
-if __name__ == "__main__":
-    main()
